@@ -21,78 +21,98 @@ const ResultT1 = () => {
   const handleDownload = () => {
     if (!stripRef.current) return;
 
-    html2canvas(stripRef.current).then((canvas) => {
+    html2canvas(stripRef.current, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: stripColor,
+    }).then((canvas) => {
       const link = document.createElement('a');
       link.download = 'kawaii-photostrip.png';
-      link.href = canvas.toDataURL('image/png');
+      link.href = canvas.toDataURL('image/png', 1.0);
       link.click();
     });
   };
 
   return (
     <div
-      className="fixed inset-0 bg-cover bg-center bg-no-repeat flex flex-col items-center px-10 py-12"
+      className="fixed inset-0 bg-cover bg-center bg-no-repeat flex flex-col items-center px-10 pt-24 pb-12"
       style={{
         backgroundImage: "url('/background.png')",
         backgroundSize: '100% 100%',
       }}
     >
-      {/* Title */}
-      <h1 className="text-5xl font-koh text-[#725D5D] text-opacity-80 font-bold mb-10">
+      <h1 className="text-5xl font-koh text-[#725D5D] text-opacity-80 font-bold mb-[10px]">
         Kawaii Photobooth
       </h1>
+      <p className="text-white font-koh text-opacity-80 mb-8 text-center">
+        Select your pictures and template, you can click<br />
+        DOWNLOAD after to save your pictures! Have fun!
+      </p>
 
-      <div className="flex w-full justify-center items-start gap-16">
+      <div className="flex flex-wrap justify-center gap-12">
         {/* Photostrip */}
         <div
           ref={stripRef}
-          className="w-[165px] h-[500px] flex flex-col items-center justify-between py-4 shadow-md"
+          className="w-[175px] h-[425px] bg-white flex flex-col items-center p-4"
           style={{ backgroundColor: stripColor }}
         >
-          <div className="flex flex-col gap-2 items-center">
+          <div className="flex flex-col gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <div
                 key={i}
-                className="w-[144px] h-[108px] bg-gray-300 flex items-center justify-center"
+                className="w-[150px] h-[110px] bg-gray-200 flex items-center justify-center"
               >
                 {selectedPhotos[i] && (
                   <img
                     src={selectedPhotos[i]}
                     alt={`strip-photo-${i}`}
                     className="w-full h-full object-cover"
+                    crossOrigin="anonymous"
                   />
                 )}
               </div>
             ))}
           </div>
-          <p className="text-[8px] font-kiwi text-black">@kawaiiphotobooth</p>
+          <p className="text-[8px] font-kiwi mt-[25px] text-gray-600">@kawaiiphotobooth</p>
         </div>
 
-        {/* Right: 6 selectable photos */}
-        <div>
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            {allPhotos.map((photo, i) => (
+        {/* Right side: Photo selection */}
+        <div className="flex flex-col items-center">
+          <div className="grid grid-cols-3 gap-4 mb-8">
+            {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
-                className={`w-[220px] h-[140px] border-4 cursor-pointer flex items-center justify-center ${
-                  selectedPhotos.includes(photo)
-                    ? 'border-[#D4b2a7]'
-                    : 'border-white'
+                className={`w-[220px] h-[140px] bg-white cursor-pointer ${
+                  selectedPhotos.includes(allPhotos[i]) ? 'ring-4 ring-white' : ''
                 }`}
-                onClick={() => handlePhotoClick(photo)}
+                onClick={() => allPhotos[i] && handlePhotoClick(allPhotos[i])}
               >
-                <img src={photo} alt={`photo-${i}`} className="w-full h-full object-cover" />
+                {allPhotos[i] && (
+                  <img
+                    src={allPhotos[i]}
+                    alt={`photo-${i}`}
+                    className="w-full h-full object-cover"
+                  />
+                )}
               </div>
             ))}
           </div>
 
           {/* Color picker */}
-          <div className="flex justify-center gap-4 mb-4">
-            {['#ffffff', '#000000', '#e9c2c5', '#cdc6c3', '#a38f85', '#91a5b3'].map((color, i) => (
+          <div className="flex justify-center gap-4 mb-6">
+            {[
+              '#ffffff',
+              '#000000',
+              '#e9c2c5',
+              '#cdc6c3',
+              '#a38f85',
+              '#91a5b3'
+            ].map((color) => (
               <button
-                key={i}
-                className={`w-[40px] h-[40px] rounded-full border-2 ${
-                  stripColor === color ? 'ring-2 ring-rose-400' : 'border-gray-300'
+                key={color}
+                className={`w-10 h-10 rounded-full ${
+                  stripColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''
                 }`}
                 style={{ backgroundColor: color }}
                 onClick={() => setStripColor(color)}
@@ -101,14 +121,12 @@ const ResultT1 = () => {
           </div>
 
           {/* Download button */}
-          <div className="flex justify-center">
-            <button
-              className="bg-[#D8B4A0] hover:bg-[#cfa691] font-koh text-white text-base font-bold px-4 py-1 rounded-2xl shadow-md transition-all duration-200"
-              onClick={handleDownload}
-            >
-              Download
-            </button>
-          </div>
+          <button
+            onClick={handleDownload}
+            className="bg-rose hover:bg-mauve text-white px-6 py-2 rounded-lg font-koh transition-colors"
+          >
+            DOWNLOAD
+          </button>
         </div>
       </div>
     </div>

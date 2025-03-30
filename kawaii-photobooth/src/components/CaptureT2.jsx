@@ -117,7 +117,7 @@ const CaptureT2 = () => {
       {/* Next button */}
       {count === 8 && (
         <button
-          onClick={() => navigate('/result2')}
+          onClick={() => navigate('/result2', { state: { photos } })}
           className="mt-3 bg-rose hover:bg-mauve font-koh text-white text-base font-bold px-4 py-1 rounded-md transition-all duration-200"
         >
           NEXT
