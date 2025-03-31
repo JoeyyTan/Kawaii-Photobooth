@@ -4,10 +4,13 @@ import { useNavigate } from 'react-router-dom';
 
 const CaptureT1 = () => {
   const webcamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
   const [photos, setPhotos] = useState([]);
+  const [videoClips, setVideoClips] = useState([]);
   const [count, setCount] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
   const [countdown, setCountdown] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
 
   const navigate = useNavigate();
 
@@ -20,12 +23,23 @@ const CaptureT1 = () => {
   useEffect(() => {
     if (!isCapturing || count >= 6) return;
 
+    // Start recording 2 seconds before taking the screenshot
+    let recordingTimeout = setTimeout(() => {
+      startRecording();
+      setIsRecording(true);
+    }, 1000);
+    
     // Begin countdown for current shot
     let timeout1 = setTimeout(() => setCountdown(2), 1000);
     let timeout2 = setTimeout(() => setCountdown(1), 2000);
     let timeout3 = setTimeout(() => {
       // Take screenshot at 0
       if (webcamRef.current) {
+        // Stop recording
+        stopRecording();
+        setIsRecording(false);
+        
+        // Take the screenshot
         const screenshot = webcamRef.current.getScreenshot();
         setPhotos(prev => [...prev, screenshot]);
         setCount(prev => prev + 1);
@@ -34,15 +48,45 @@ const CaptureT1 = () => {
     }, 3000);
 
     return () => {
+      clearTimeout(recordingTimeout);
       clearTimeout(timeout1);
       clearTimeout(timeout2);
       clearTimeout(timeout3);
+      if (isRecording) {
+        stopRecording();
+        setIsRecording(false);
+      }
     };
-  }, [count, isCapturing]);
+  }, [count, isCapturing, isRecording]);
+
+  const startRecording = () => {
+    if (webcamRef.current && webcamRef.current.stream) {
+      mediaRecorderRef.current = new MediaRecorder(webcamRef.current.stream, {
+        mimeType: "video/webm"
+      });
+      
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          const videoBlob = event.data;
+          const videoUrl = URL.createObjectURL(videoBlob);
+          setVideoClips(prev => [...prev, { blob: videoBlob, url: videoUrl }]);
+        }
+      };
+      
+      mediaRecorderRef.current.start();
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  };
 
   const startCapture = () => {
     setIsCapturing(true);
     setPhotos([]);
+    setVideoClips([]);
     setCount(0);
     setCountdown(3); // Start first countdown
   };
@@ -62,7 +106,7 @@ const CaptureT1 = () => {
           {count === 6
             ? 'Picture taking completed!'
             : isCapturing
-            ? 'Picture taking in progress...'
+            ? isRecording ? 'Recording...' : 'Picture taking in progress...'
             : 'Ready to capture!'}
         </p>
       </div>
@@ -82,6 +126,12 @@ const CaptureT1 = () => {
             <p className="text-7xl font-koh text-white drop-shadow-lg animate-pulse">
               {count === 6 ? 'Done!' : countdown}
             </p>
+          </div>
+        )}
+        {isRecording && (
+          <div className="absolute top-4 right-4 flex items-center">
+            <div className="w-4 h-4 bg-red-500 rounded-full animate-pulse mr-2"></div>
+            <span className="text-white font-koh text-sm">REC</span>
           </div>
         )}
       </div>
@@ -117,7 +167,7 @@ const CaptureT1 = () => {
       {/* Next button */}
       {count === 6 && (
         <button
-          onClick={() => navigate('/result1', { state: { photos } })}
+          onClick={() => navigate('/result1', { state: { photos, videoClips } })}
           className="mt-3 bg-rose hover:bg-mauve font-koh text-white text-base font-bold px-4 py-1 rounded-md transition-all duration-200"
         >
           NEXT

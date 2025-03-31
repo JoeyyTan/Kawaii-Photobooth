@@ -1,42 +1,277 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import html2canvas from 'html2canvas';
 
 const ResultT3 = () => {
   const [selectedPhotos, setSelectedPhotos] = useState([]);
+  const [selectedVideoIndices, setSelectedVideoIndices] = useState([]);
   const [stripColor, setStripColor] = useState('#ffffff');
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [videoGenerationProgress, setVideoGenerationProgress] = useState(0);
 
   const location = useLocation();
   const allPhotos = location.state?.photos || [];
+  const allVideoClips = location.state?.videoClips || [];
   const stripRef = useRef();
+  const canvasRef = useRef();
+  const videosRef = useRef([]);
 
-  const handlePhotoClick = (photo) => {
+  useEffect(() => {
+    // Create an offscreen canvas for video creation
+    const canvas = document.createElement('canvas');
+    // Higher resolution for better quality (2x the display size)
+    canvas.width = 700; // 2x grid width
+    canvas.height = 1100; // 2x grid height
+    canvasRef.current = canvas;
+
+    // Initialize video elements refs
+    videosRef.current = Array(8).fill().map(() => document.createElement('video'));
+  }, []);
+
+  const handlePhotoClick = (photo, index) => {
     if (selectedPhotos.includes(photo)) {
+      // Remove the photo
       setSelectedPhotos(prev => prev.filter(p => p !== photo));
+      
+      // Also remove the corresponding video index
+      setSelectedVideoIndices(prev => prev.filter(i => i !== index));
     } else if (selectedPhotos.length < 8) {
+      // Add the photo
       setSelectedPhotos(prev => [...prev, photo]);
+      
+      // Also add the corresponding video index if available
+      if (allVideoClips && allVideoClips[index]) {
+        setSelectedVideoIndices(prev => [...prev, index]);
+      }
     }
   };
 
-  const handleDownload = () => {
-    if (!stripRef.current) return;
+  const createPhotoGridVideo = async () => {
+    if (selectedPhotos.length < 8) {
+      alert('Please select 8 photos to create your video grid.');
+      return null;
+    }
 
-    html2canvas(stripRef.current, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: stripColor,
-    }).then((canvas) => {
-      const link = document.createElement('a');
-      link.download = 'kawaii-photostrip.png';
-      link.href = canvas.toDataURL('image/png', 1.0);
-      link.click();
-    });
+    try {
+      // Get the canvas context for video creation
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      
+      // Setup MediaRecorder with widely supported format and codecs
+      // Higher FPS and bitrate for better quality
+      const stream = canvas.captureStream(60); // 60 FPS
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp9', // VP9 for better quality
+        videoBitsPerSecond: 8000000 // 8 Mbps for higher quality
+      });
+      
+      const chunks = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+      
+      return new Promise(async (resolve) => {
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          resolve(blob);
+        };
+        
+        // Prepare canvas with background color
+        ctx.fillStyle = stripColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Set up the 8 video elements with the selected photos (we may not have videos for T3)
+        const videoElements = [];
+        const imageElements = [];
+        
+        for (let i = 0; i < 8; i++) {
+          // Always load the selected photos for fallback
+          const img = new Image();
+          img.src = selectedPhotos[i];
+          img.crossOrigin = "anonymous";
+          imageElements.push(img);
+          
+          // Try to load video if available
+          const videoIndex = selectedVideoIndices[i];
+          if (videoIndex !== undefined && allVideoClips && allVideoClips[videoIndex]) {
+            const videoEl = videosRef.current[i];
+            videoEl.src = allVideoClips[videoIndex].url;
+            videoEl.muted = true;
+            videoEl.crossOrigin = "anonymous";
+            videoEl.setAttribute('playsinline', true);
+            
+            // Wait for video metadata to load
+            await new Promise(resolve => {
+              videoEl.onloadedmetadata = resolve;
+              videoEl.load();
+            });
+            
+            videoElements.push(videoEl);
+          } else {
+            // Use a placeholder if no video
+            videoElements.push(null);
+          }
+        }
+        
+        // Start recording
+        mediaRecorder.start();
+        
+        // Calculate positions for the videos in grid layout with higher resolution
+        const cellWidth = 300; // Double width for better quality
+        const cellHeight = 220; // Double height for better quality
+        const padding = 20; // Padding between cells
+        const cols = 2;
+        
+        // Calculate the total width of the grid to center it
+        const totalGridWidth = (cols * cellWidth) + ((cols - 1) * padding);
+        const startX = (canvas.width - totalGridWidth) / 2;
+        
+        // Calculate positions for a 2x4 grid
+        const positions = [];
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < cols; col++) {
+            const index = row * cols + col;
+            positions[index] = {
+              x: startX + col * (cellWidth + padding),
+              y: row * (cellHeight + padding) + padding
+            };
+          }
+        }
+        
+        // Start all videos if available
+        videoElements.forEach(vid => vid && vid.play());
+        
+        // Draw function to render the photostrip with videos/images
+        const drawPhotoGrid = () => {
+          // Apply anti-aliasing
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          
+          // Clear canvas with background color
+          ctx.fillStyle = stripColor;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw each video/image in its position
+          videoElements.forEach((videoEl, index) => {
+            if (videoEl && !videoEl.ended) {
+              // Draw video frame if video is available and playing
+              ctx.drawImage(
+                videoEl, 
+                positions[index].x, 
+                positions[index].y, 
+                cellWidth, 
+                cellHeight
+              );
+            } else {
+              // Draw the image as fallback
+              ctx.drawImage(
+                imageElements[index], 
+                positions[index].x, 
+                positions[index].y, 
+                cellWidth, 
+                cellHeight
+              );
+            }
+            
+            // Add a border around the frame
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 4; // Thicker border for HD
+            ctx.strokeRect(
+              positions[index].x, 
+              positions[index].y, 
+              cellWidth, 
+              cellHeight
+            );
+          });
+          
+          // Add branding at the bottom
+          ctx.fillStyle = '#333333';
+          ctx.font = 'bold 16px Kiwi Maru, Arial'; // Use Kiwi Maru font
+          ctx.textAlign = 'center';
+          ctx.fillText('@kawaiiphotobooth', canvas.width / 2, canvas.height - 30);
+          
+          // Check if all videos have ended or if 10 seconds have passed
+          const allVideosEnded = videoElements.every(vid => vid === null || vid.ended);
+          
+          if (allVideosEnded) {
+            mediaRecorder.stop();
+            return;
+          }
+          
+          // Update progress based on first video or time elapsed
+          if (videoElements[0]) {
+            const progress = (videoElements[0].currentTime / Math.max(videoElements[0].duration, 10)) * 100;
+            setVideoGenerationProgress(Math.round(progress));
+          }
+          
+          requestAnimationFrame(drawPhotoGrid);
+        };
+        
+        // Start the drawing loop
+        drawPhotoGrid();
+        
+        // Safety timeout to stop recording after 10 seconds if videos don't end
+        setTimeout(() => {
+          if (mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+          }
+        }, 10000);
+      });
+    } catch (error) {
+      console.error('Error creating video grid:', error);
+      return null;
+    }
+  };
+
+  const handleDownload = async () => {
+    if (selectedPhotos.length < 8) {
+      alert('Please select 8 photos to create your photo grid and video.');
+      return;
+    }
+    
+    setIsDownloading(true);
+    setVideoGenerationProgress(0);
+    
+    try {
+      // First download the PNG version of the photostrip
+      const canvas = await html2canvas(stripRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: stripColor,
+      });
+      
+      const pngLink = document.createElement('a');
+      pngLink.download = 'kawaii-photogrid.png';
+      pngLink.href = canvas.toDataURL('image/png', 1.0);
+      pngLink.click();
+      
+      // Now create and download the photostrip video
+      const videoBlob = await createPhotoGridVideo();
+      
+      if (videoBlob) {
+        // Create download link
+        const videoLink = document.createElement('a');
+        videoLink.href = URL.createObjectURL(videoBlob);
+        videoLink.download = 'kawaii-photogrid-video.webm';
+        videoLink.click();
+        
+        URL.revokeObjectURL(videoLink.href);
+      }
+    } catch (error) {
+      console.error('Error creating downloads:', error);
+      alert('There was an error creating your downloads. Please try again.');
+    } finally {
+      setIsDownloading(false);
+      setVideoGenerationProgress(0);
+    }
   };
 
   return (
     <div
-      className="fixed inset-0 bg-cover bg-center bg-no-repeat flex flex-col items-center px-10 pt-16 pb-12"
+      className="fixed inset-0 bg-cover bg-center bg-no-repeat flex flex-col items-center px-10 pt-16 pb-12 overflow-y-auto"
       style={{
         backgroundImage: "url('/background.png')",
         backgroundSize: '100% 100%',
@@ -46,15 +281,14 @@ const ResultT3 = () => {
         Kawaii Photobooth
       </h1>
       <p className="text-white font-koh text-opacity-80 mb-6 text-center">
-        Select your pictures and template, you can click<br />
-        DOWNLOAD after to save your pictures! Have fun!
+        Select 8 pictures for your photo grid, you can click<br />
+        DOWNLOAD to save PNG and video versions! Have fun!
       </p>
 
       <div className="flex flex-wrap justify-center gap-12">
-        {/* Photostrip */}
+        {/* Photo Grid */}
         <div
           ref={stripRef}
-          // className="w-[320px] bg-white p-4"
           className="w-[350px] h-[550px] bg-white flex flex-col items-center p-4"
           style={{ backgroundColor: stripColor }}
         >
@@ -62,7 +296,6 @@ const ResultT3 = () => {
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                // className="w-[144px] h-[108px] bg-gray-200 flex items-center justify-center"
                 className="w-[150px] h-[110px] bg-gray-200 flex items-center justify-center"
               >
                 {selectedPhotos[i] && (
@@ -76,7 +309,6 @@ const ResultT3 = () => {
               </div>
             ))}
           </div>
-          {/* <p className="text-[8px] font-kiwi mt-[25px] text-center text-gray-600">@kawaiiphotobooth</p> */}
           <p className="text-[8px] font-kiwi mt-[25px] text-gray-600">@kawaiiphotobooth</p>
         </div>
 
@@ -86,10 +318,10 @@ const ResultT3 = () => {
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className={`w-[180px] h-[140px] bg-white cursor-pointer ${
+                className={`relative w-[180px] h-[140px] bg-white cursor-pointer ${
                   selectedPhotos.includes(allPhotos[i]) ? 'ring-4 ring-white' : ''
                 }`}
-                onClick={() => allPhotos[i] && handlePhotoClick(allPhotos[i])}
+                onClick={() => allPhotos[i] && handlePhotoClick(allPhotos[i], i)}
               >
                 {allPhotos[i] && (
                   <img
@@ -97,6 +329,11 @@ const ResultT3 = () => {
                     alt={`photo-${i}`}
                     className="w-full h-full object-cover"
                   />
+                )}
+                {allVideoClips && allVideoClips[i] && (
+                  <div className="absolute top-1 right-1 w-4 h-4 bg-rose rounded-full flex items-center justify-center">
+                    <div className="w-2 h-2 bg-white" />
+                  </div>
                 )}
               </div>
             ))}
@@ -126,10 +363,35 @@ const ResultT3 = () => {
           {/* Download button */}
           <button
             onClick={handleDownload}
-            className="bg-rose hover:bg-mauve text-white px-6 py-2 rounded-lg font-koh transition-colors"
+            disabled={isDownloading || selectedPhotos.length < 8}
+            className={`bg-rose hover:bg-mauve text-white px-6 py-2 rounded-lg font-koh transition-colors ${
+              isDownloading || selectedPhotos.length < 8 ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            DOWNLOAD
+            {isDownloading ? 'CREATING FILES...' : 'DOWNLOAD'}
           </button>
+          
+          {isDownloading && videoGenerationProgress > 0 && (
+            <div className="w-full max-w-[220px] mt-2">
+              <div className="bg-gray-200 rounded-full h-2.5">
+                <div 
+                  className="bg-rose h-2.5 rounded-full" 
+                  style={{ width: `${videoGenerationProgress}%` }}
+                ></div>
+              </div>
+              <p className="text-white text-xs mt-1 text-center">
+                Generating video: {videoGenerationProgress}%
+              </p>
+            </div>
+          )}
+          
+          {!isDownloading && (
+            <p className="text-white text-xs mt-2">
+              {selectedPhotos.length < 8 
+                ? `Select ${8 - selectedPhotos.length} more photo${selectedPhotos.length === 7 ? '' : 's'}` 
+                : 'Your download will include PNG photo grid and HD video!'}
+            </p>
+          )}
         </div>
       </div>
     </div>
